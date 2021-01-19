@@ -1,0 +1,229 @@
+options(scipen=10000000)
+
+library(tidyverse)
+library(kableExtra)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(lubridate)
+
+
+
+Churn <- read.csv("~/GitHub/Public-Policy-Analytics-Landing/DATA/Chapter6/churnBounce.csv")
+Housing <- read.csv("~/GitHub/Public-Policy-Analytics-Landing/DATA/Chapter6/housingSubsidy.csv")
+
+palette5 <- c("#d01c8b","#f1b6da","#b8e186","#4dac26","#f7f7f7")
+palette4 <- c("#d01c8b","#f1b6da","#b8e186","#4dac26")
+palette2 <- c("#a1d76a","#e9a3c9")
+
+
+#Age
+Housing %>%
+  dplyr::select(y,age) %>%
+  gather(Variable, value, -y) %>%
+  ggplot(aes(y, value, fill=y)) + 
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Churn", y="Value", 
+       title = "Feature associations with the likelihood of click",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = "none")
+
+Housing %>%
+  dplyr::select(y,unemploy_rate , inflation_rate, spent_on_repairs) %>%
+  gather(Variable, value, -y) %>%
+  ggplot(aes(y, value, fill=y)) + 
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Churn", y="Value", 
+       title = "Feature associations with the likelihood of click",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = )
+
+Housing %>%
+  dplyr::select(y,unemploy_rate , inflation_rate, spent_on_repairs) %>%
+  gather(Variable, value, -y) %>%
+  ggplot() + 
+  geom_density(aes(value, color=y), fill = "transparent") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Feature distributions click vs. no click",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = )
+
+Housing %>%
+  dplyr::select(y,spent_on_repairs) %>%
+  gather(Variable, value, -y) %>%
+  ggplot() + 
+  geom_density(aes(value, color=y), fill = "transparent") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Feature distributions click vs. no click",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = )
+
+#Mortgage and Marital
+Housing %>%
+  dplyr::select(y, mortgage, marital) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Click", y="Value",
+       title = "Feature associations with the likelihood of voucher",
+       subtitle = "Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Education
+Housing %>%
+  dplyr::select(y, education) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Click", y="Value",
+       title = "Feature associations with the likelihood of voucher",
+       subtitle = "Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Job
+Housing %>%
+  dplyr::select(y, job) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Click", y="Value",
+       title = "Feature associations with the likelihood of voucher",
+       subtitle = "Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Day of Week
+Housing %>%
+  dplyr::select(y, day_of_week) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value",
+       title = "Feature associations with the likelihood of voucher",
+       subtitle = "Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+Housing %>%
+  dplyr::select(y, taxLien, mortgage, taxbill_in_phl) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "yes") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of churn",
+       subtitle = "Two category features (Yes and No)") +
+      theme(legend.position = )
+
+#Cellular
+Housing %>%
+  dplyr::select(y, contact) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "cellular") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of churn",
+       subtitle = "Two category features (Yes and No)") +
+  theme(legend.position = )
+
+#Telephone
+Housing %>%
+  dplyr::select(y, contact) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "telephone") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of churn",
+       subtitle = "Two category features (Yes and No)") +
+  theme(legend.position = )
+#not enough data on taxlien
+
+#variable transformation
+Housing <- 
+  Housing %>% 
+  group_by(day_of_week) %>% 
+  summarize(totSubsidies = sum(y_numeric), 
+            n = n(), 
+            DaySubsidyAvg = 100*(totSubsidies/n)) %>%
+  dplyr::select(-n, -totSubsidies) %>%
+  right_join(Housing, .) %>%
+  
+  mutate(day_of_week = mdy_hm(day_of_week),
+         userTimeFrame = case_when(hour(Timestamp) < 6  ~ "NIGHT",
+                                   hour(Timestamp) >= 6 & hour(Timestamp) <= 10  ~ "AM",
+                                   hour(Timestamp) >= 10 & hour(Timestamp) < 17  ~ "WORKDAY",
+                                   hour(Timestamp) >= 17  ~ "EVENING"))
+
+#job types
+Housing <-
+  Housing %>%
+  mutate(middleJobs = ifelse(str_detect(Housing$job, "admin.|blue-collar|technician"), "Yes", "No"))
+
+#out of workforce
+Housing <-
+  Housing %>%
+  mutate(noWork = ifelse(str_detect(Housing$job, "retired|student|unemployed"), "Yes", "No"))
+
+#lower ed
+Housing <-
+  Housing %>%
+  mutate(lowerEd = ifelse(str_detect(Housing$education, "basic.4y|basic.6y|basic.9y|high.school"), "Yes", "No"))
+
+#higher ed
+Housing <-
+  Housing %>%
+  mutate(higherEd = ifelse(str_detect(Housing$education, "professional.course|university.degree"), "Yes", "No"))
+
+#Data Training
+set.seed(3456)
+trainIndex <- createDataPartition(Housing$y, p = .65,
+                                  list = FALSE,
+                                  times = 1)
+HousingTrain <- Housing[ trainIndex,]
+HousingTest  <- Housing[-trainIndex,]
+
+#Creating the engineered model
+HousingModel <- glm(y_numeric ~ .,
+                        data=HousingTrain %>% 
+                          dplyr::select(-job,-campaign, -month, -previous, -pdays, -inflation_rate, -taxLien, -education, -unemploy_rate, -poutcome, -contact),
+                        family="binomial" (link="logit"))
+
+summary(HousingModel)
+
+#Creating the kitchen sink model
+KitchensinkModel <- glm(y_numeric ~ .,
+                    data=HousingTrain %>% 
+                      dplyr::select(-DaySubsidyAvg, -noWork, -lowerEd, -higherEd, -middleJobs),
+                    family="binomial" (link="logit"))
+
+summary(KitchensinkModel)
+

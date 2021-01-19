@@ -1,0 +1,648 @@
+---
+title: "Predicting Housing Credit Marketing: 508HW4"
+author: "Tova Perlman"
+date: "10/30/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+## Introduction
+In this report, Emil City wants to increase the amount of homeowners currently taking the home repair tax credit which is offered as part of the Department of Housing and Community Development's (HCD) work. The home repair tax credit is a public good in that it encourages people to repair their homes which ultimately increases the value of homes and neighborhoods and allows for the city government to gain money in tax revenue over time. In our analysis, we focus on maximizing the amount of people likely to take the credit and thus increase public benefit. We do this through a logistic regression and then a series of tests to determine sensitivity and specificity of the model. We then cross validate the data and construct a cost benefit analysis to determine how many more people were targeted and how much benefit the community saw through that targeting. Ultimately, we were not able to increase the sensitivty rating by that much. 
+
+
+```{r setup, message=FALSE, results= "hide", warning=FALSE }
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, class.source = "fold-show")
+
+options(scipen=10000000)
+
+library(tidyverse)
+library(kableExtra)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(lubridate)
+
+Housing <- read.csv("~/GitHub/Public-Policy-Analytics-Landing/DATA/Chapter6/housingSubsidy.csv")
+
+palette5 <- c("#d01c8b","#f1b6da","#b8e186","#4dac26","#f7f7f7")
+palette4 <- c("#d01c8b","#f1b6da","#b8e186","#4dac26")
+palette2 <- c("#a1d76a","#e9a3c9")
+
+```
+
+## Exploratory Data Analysis 
+
+In this section, we will show some visualizations on some key features of the data and interpret what they mean in the context of who we should be marketing for our housing tax credit program. 
+
+Here we see some visualizations with continuous variables. The first graph uses the category of age to show that the age of a homeowner has relatively equal responses for taking the credit with older folks taking the credit more. 
+
+```{r visualizations}
+Housing %>%
+  dplyr::select(y,age) %>%
+  gather(Variable, value, -y) %>%
+  ggplot(aes(y, value, fill=y)) + 
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Age", 
+       title = "Feature associations with the likelihood of taking the credit",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = "none")
+
+```
+
+The second graph featuring inflation rate and spent on repairs shows that as the inflation rate gets higher, fewer people will take the housing credit. It also shows that the category spent on repairs does not have meaningful differences between the people who took the credit and who didn't. Additionally, we see a density line graph that shows the large number of no's relative to yes's in three categories of inflation rate, spent on repairs and unemployment rate. 
+
+```{r}
+Housing %>%
+  dplyr::select(y, inflation_rate, spent_on_repairs) %>%
+  gather(Variable, value, -y) %>%
+  ggplot(aes(y, value, fill=y)) + 
+  geom_bar(position = "dodge", stat = "summary", fun.y = "mean") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value", 
+       title = "Feature associations with the likelihood of taking the credit",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = )
+
+Housing %>%
+  dplyr::select(y,unemploy_rate , inflation_rate, spent_on_repairs) %>%
+  gather(Variable, value, -y) %>%
+  ggplot() + 
+  geom_density(aes(value, color=y), fill = "transparent") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_fill_manual(values = palette2) +
+  labs(title = "Feature distributions credit vs. no credit",
+       subtitle = "(continous outcomes)") +
+  theme(legend.position = )
+```
+
+Now we do some data visualizations with the categorical variables. Since we are trying to maximize the amount of homeowners who take the housing credit, we will focus on the yes's in the following graphs. In Figure 2.1, married and single people are more likely to take the credit than divorced or unknown people. Mortgage does not seem to make a difference in taking the housing credit. In Figure 2.2, we see that homeowners with higher degrees are more likely to take the credit.  In Figure 2.3 focused on professions, techinicians, blue collar workers and administrative jobs are the ones most likely to take the credit. In Figure 2.4, day of the week has no meaningful relationship to the amount of people taking the credit. 
+
+In the next two figures, there is a focus on variables with binary answers of yes or no. In Figure 2.5, we filtered for all people who had a mortgage, paid taxes outside PHL and had a taxLien. We see there were no people who took the credit with a taxLien and small amounts of people who took it with a mortgage or took it who paid taxes outside of PHL. In Figure 2.6, we filtered the data to include contact made with homeowner with a cellular device. In this visualization we see that around 300 people took the credit if contacted by a cellular device. This is higher than the people who took it when they were contacted by telephone. 
+
+```{r visualizations with categorical features}
+#Mortgage and Marital
+Housing %>%
+  dplyr::select(y, mortgage, marital) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value",
+       title = "Feature associations with the likelihood of tax credit: Marital status and Mortgage",
+       subtitle = "Fig 2.1: Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Education
+Housing %>%
+  dplyr::select(y, education) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value",
+       title = "Feature associations with the likelihood of tax credit: Education level",
+       subtitle = "Fig 2.2: Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Job
+Housing %>%
+  dplyr::select(y, job) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value",
+       title = "Fig 2.3: Feature associations with the likelihood of tax credit: Profession",
+       subtitle = "Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Day of Week
+Housing %>%
+  dplyr::select(y, day_of_week) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  ggplot(., aes(value, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales="free") +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Value",
+       title = "Feature associations with the likelihood of tax credit: Day of the Week contacted",
+       subtitle = "Fig 2.4: Categorical features") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#TaxLien, Mortgage, taxbillphl if they had yes for these
+Housing %>%
+  dplyr::select(y, taxLien, mortgage, taxbill_in_phl) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "yes") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of tax credit: TaxLien, Mortgage and paying taxes in PHL",
+       subtitle = "Fig 2.5: Two category features (Yes and No)") +
+  theme(legend.position = )
+
+#contact for cellular phones
+Housing %>%
+  dplyr::select(y, contact) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "cellular") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of tax credit: Cellular contact",
+       subtitle = "Fig 2.6: Two category features (Yes and No)") +
+  theme(legend.position = )
+
+#contact for telephone phones
+Housing %>%
+  dplyr::select(y, contact) %>%
+  gather(Variable, value, -y) %>%
+  count(Variable, value, y) %>%
+  filter(value == "telephone") %>%
+  ggplot(aes(y, n, fill = y)) +   
+  geom_bar(position = "dodge", stat="identity") +
+  facet_wrap(~Variable, scales = "free", ncol = 3) +
+  scale_fill_manual(values = palette2) +
+  labs(x="Credit", y="Count",
+       title = "Feature associations with the likelihood of tax credit: Telephone Contact",
+       subtitle = "Fig 2.7: Two category features (Yes and No)") +
+  theme(legend.position = )
+```
+
+## Feature Engineering
+
+In this step, we use the information gathered from our exploratory analysis to engineer new features into our model. We chose to focus on mainly categorical features. In this block of code, we engineered features that calculated the average of housing credits taken on a specific day. Another feature categorized jobs where one column was for if they were in admin, blue collar and technician jobs and a second column was made for if they were out of the workforce including retired, student and unemployed. We separated higher and lower levels of education. Lastly, we chose to focus on people who were married and contacted by cell phone as both seemed to indicate higher levels of yes's. All of these features are meant to increase the sensitivity of our model and the amount of True Positives of homeowners we can target.
+
+
+```{r Feature Engineering}
+#likelihood of accepting based on day contacted
+Housing <- 
+  Housing %>% 
+  group_by(day_of_week) %>% 
+  summarize(totSubsidies = sum(y_numeric), 
+            n = n(), 
+            DaySubsidyAvg = 100*(totSubsidies/n)) %>%
+  dplyr::select(-n, -totSubsidies) %>%
+  right_join(Housing, .) 
+
+#job types
+Housing <-
+  Housing %>%
+  mutate(middleJobs = ifelse(str_detect(Housing$job, "admin.|blue-collar|technician"), "Yes", "No"))
+
+#out of workforce
+Housing <-
+  Housing %>%
+  mutate(noWork = ifelse(str_detect(Housing$job, "retired|student|unemployed"), "Yes", "No"))
+
+#lower ed
+Housing <-
+  Housing %>%
+  mutate(lowerEd = ifelse(str_detect(Housing$education, "basic.4y|basic.6y|basic.9y|high.school"), "Yes", "No"))
+
+#higher ed
+Housing <-
+  Housing %>%
+  mutate(higherEd = ifelse(str_detect(Housing$education, "professional.course|university.degree"), "Yes", "No"))
+
+#contact cellular
+Housing <-
+  Housing %>%
+  mutate(cellular = ifelse(str_detect(Housing$contact, "cellular"), "Yes", "No"))
+
+#married
+Housing <-
+  Housing %>%
+  mutate(married = ifelse(str_detect(Housing$marital, "married"), "Yes", "No"))
+
+```
+
+## Data Training
+
+Now we approach the data training part of our workflow where we create our two models and put them through a few tests. The code chunk below separates the data into a housing and test set with a 65/35 split. 
+
+```{r Data Training}
+#Data Training
+set.seed(3456)
+trainIndex <- createDataPartition(y=paste(Housing$marital), p = .65,
+                                  list = FALSE,
+                                  times = 1)
+HousingTrain <- Housing[ trainIndex,]
+HousingTest  <- Housing[-trainIndex,]
+```
+
+### Creating the model
+
+Here we create two different models. The first model called KitchenSink is the model with all the data previously in the dataset. The second model has only the new features we engineered. In the results below, we see the regression summaries for both. Note that the AIC score is lower for the kitchen sink model than the engineered one. This is our first indicator that the kitchen sink model is better. Note that there is no R2 or Adjusted R2 value for this regression summary. We will need to use other goodness of fit tests on our models. 
+
+```{r new model}
+KitchenSink <- glm(y_numeric ~ .,
+                   data=HousingTrain %>% 
+                     dplyr::select(-y, -noWork, -married, -cellular, -middleJobs, -DaySubsidyAvg, -lowerEd, -higherEd),
+                   family="binomial" (link="logit"))
+
+summary(KitchenSink)
+
+EngineeredModel <- glm(y_numeric ~ .,
+                       data=HousingTrain %>% 
+                         dplyr::select(-y, -job, -marital, -age, -campaign, -day_of_week, -month, -previous, -pdays, -inflation_rate, -taxLien, -education, -unemploy_rate, -poutcome, -contact, -cons.price.idx, -cons.conf.idx),
+                       family="binomial" (link="logit"))
+
+summary(EngineeredModel)
+```
+
+Instead of looking at Adjusted R2, we look at the pseudo- R squared which in this context is the McFadden score. Whichever score is closer to 1 is the better model. In this instance, it is our kitchen sink model. 
+```{r}
+pR2(KitchenSink)
+pR2(EngineeredModel)
+```
+Predictions for the Kitchen Sink and Engineered Models are here. In this graph the 0 or green line are people who didn't take the housing credit and they are close to 0. The 1 or pink line are people who did take the housing credit and ideally the large area should be close to 1. In neither of these is it super close to 1, but the kitchen sink model is slightly closer than the engineered one.
+
+```{r Predictions}
+#kitchen sink predictions
+testprobs.kitchen <- data.frame(Outcome = as.factor(HousingTest$y_numeric),
+                                Probs = predict(KitchenSink, HousingTest, type= "response"))
+head(testprobs.kitchen)
+
+ggplot(testprobs.kitchen, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_manual(values = palette2) + xlim(0, 1) +
+  labs(x = "y", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  theme(strip.text.x = element_text(size = 18),
+        legend.position = "none")
+
+#engineered predictions
+testprobs.engineered <- data.frame(Outcome = as.factor(HousingTest$y_numeric),
+                                   Probs = predict(EngineeredModel, HousingTest, type= "response"))
+head(testprobs.engineered)
+
+ggplot(testprobs.engineered, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_manual(values = palette2) + xlim(0, 1) +
+  labs(x = "y", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  theme(strip.text.x = element_text(size = 18),
+        legend.position = "none")
+```
+
+
+### Confusion Matrix
+
+In the next two blocks of code, we create a test probability for both the kitchen sink and engineered models. We start with a threshold of 50% in predicting the amount of homeowners who will take a housing credit.  We are most concerned with the table containing the True Positive, True Negative, False Positive, and False Negative.
+
+In the kitchen sink model, the false negatives are 1238 homeowners, false positives are 127 homeowners, true negatives are 37 homeowners and true positives are 38 homeowners. We want to focus on the true positives and allocating resources to them. We see in the kitchen sink confusion matrix that our model has an accuracy of 88%, a sensitivity rating of 23% and a specificity rating of 97%. This means our model is very good at predicting the true negatives but not very good at predicting the true positives. This makes sense as the majority of our data is people who didn't take the credit but we still want to optimize on marketing to the people who did. 
+
+```{r Confusion Matrix- Kitchen Sink}
+
+#kitchen sink confusion matrix
+testprobs.kitchen <- 
+  testprobs.kitchen %>%
+  mutate(predOutcome  = as.factor(ifelse(testprobs.kitchen$Probs > 0.5 , 1, 0)))
+
+
+caret::confusionMatrix(testprobs.kitchen$predOutcome,testprobs.kitchen$Outcome, 
+                       positive = "1")
+
+```
+In our engineered model, 1262 homeowners are false negatives, 153 are false positives, 13 are true negatives and 12 are true positives. The model has an accuracy of 88% with a sensitivity of 7% and a specificity of 98%. This model is pretty terrible at predicting the true positives. 
+
+```{r Confusion Matrix- Engineered}
+#engineered confusion matrix
+testprobs.engineered <- 
+  testprobs.engineered %>%
+  mutate(predOutcome  = as.factor(ifelse(testprobs.engineered$Probs > 0.5 , 1, 0)))
+
+
+caret::confusionMatrix(testprobs.engineered$predOutcome,testprobs.engineered$Outcome, 
+                       positive = "1")
+```
+
+### ROC Curve
+
+Here is the ROC Curve for both models. ROC curves can help one visualize the tradeoffs for the model and predicting true positives. Both are pretty much at 75% which is around the best fit line. They are not over or under fit. 
+```{r ROC Curve}
+#kitchen sink ROC curve
+ggplot(testprobs.kitchen, aes(d = as.numeric(testprobs.kitchen$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - Kitchen Sink Model")
+
+#engineered ROC curve
+ggplot(testprobs.engineered, aes(d = as.numeric(testprobs.engineered$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - Engineered Model")
+
+```
+
+Here is the Area under the Curve for each model. Note that they are relatively the same and both close to 75%.
+
+```{r AUC calculations}
+#kitchen sink area under the curve
+pROC::auc(testprobs.kitchen$Outcome, testprobs.kitchen$Probs)
+
+#engineered area under the curve
+pROC::auc(testprobs.engineered$Outcome, testprobs.engineered$Probs)
+```
+
+
+## Cross Validation
+
+Now we do cross validation on both models using k-fold cross validation with 100 folds. We pay attention to the ROC, Sensitivity and Specifity values. 
+
+```{r cross Validation}
+#kitchen sink cv
+ctrl <- trainControl(method = "cv", number = 100, classProbs=TRUE, summaryFunction=twoClassSummary)
+
+cvKitchenFit <- train(y ~ ., data = Housing %>% 
+                        dplyr::select(
+                          -y_numeric, -noWork, -married, -cellular, -middleJobs, -DaySubsidyAvg, -lowerEd, -higherEd)%>%  
+                        dplyr::mutate(y = ifelse(y=="yes","c1.yes","c2.no")), 
+                      method="glm", family="binomial",
+                      metric="ROC", trControl = ctrl)
+
+cvKitchenFit
+
+#engineered cv
+cvEngineeredFit <- train(y ~ ., data = Housing %>% 
+                           dplyr::select(
+                             -y_numeric, -job, -marital, -age, -campaign, -day_of_week, -month, -previous, -pdays, -inflation_rate, -taxLien, -education, -unemploy_rate, -poutcome, -contact, -cons.price.idx, -cons.conf.idx)%>%
+                           dplyr::mutate(y = ifelse(y=="yes","c1.yes","c2.no")), 
+                         method="glm", family="binomial",
+                         metric="ROC", trControl = ctrl)
+
+cvEngineeredFit
+
+```
+
+### Visualization of Goodness of Fit Metrics for both models
+
+From this visualization, we can see that the sensitivity is higher for the Kitchen Sink model than for the engineered model. We also see that the specificity for the  kitchen sink model is higher than in the engineered model. Our Kitchen Sink Model is currently a better model but we will continue to proceed in the cost/benefit analysis with our engineered model to see how our feature engineering helped target true positives. 
+
+```{r GF visualization}
+#kitchen goodness of fit
+dplyr::select(cvKitchenFit$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(cvKitchenFit$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+  geom_histogram(bins=35, fill = "#FF006A") +
+  facet_wrap(~metric) +
+  geom_vline(aes(xintercept = mean), colour = "#981FAC", linetype = 3, size = 1.5) +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics: Kitchen Sink",
+       subtitle = "Across-fold mean reprented as dotted lines") 
+
+#engineered goodness of fit
+dplyr::select(cvEngineeredFit$resample, -Resample) %>%
+  gather(metric, value) %>%
+  left_join(gather(cvEngineeredFit$results[2:4], metric, mean)) %>%
+  ggplot(aes(value)) + 
+  geom_histogram(bins=35, fill = "#FF006A") +
+  facet_wrap(~metric) +
+  geom_vline(aes(xintercept = mean), colour = "#981FAC", linetype = 3, size = 1.5) +
+  scale_x_continuous(limits = c(0, 1)) +
+  labs(x="Goodness of Fit", y="Count", title="CV Goodness of Fit Metrics: Engineered ",
+       subtitle = "Across-fold mean reprented as dotted lines") 
+```
+
+## Cost Benefit Analysis
+
+In this step, we create a table that runs a cost benefit analysis for each group in our binomial logistic regression. Below we see a table that explains each of the possible outcomes and what it means. The benefit for the true positive was calculated using this equation: (-5000+10000+56000) * (Count * .25)) + (-2850 * (Count). 
+
+In this equation,  the housing credit is 5000 dollars, the house value went up by $10,000 on average and the neighboring homes went up $56,000 on average. This calculates the public benefit for taking the housing credit that HCD is invested in. It multiplies this amount by 25% of the people who are getting marketing material as that is the amount of people expected to take the credit. 
+
+Our cost is the $2850 per homeowner which is the cost of staff to create mailers, phone calls and offer information sessions about the credit. The False Positives are those we predicted would take the credit and did not so we also create an equation which is the cost ($2850) of the material multiplied by the amount of homeowners who received the resources. There is no benefit for False Positives as they chose not to take the housing credit even though we predicted they would. True negatives and False Negatives are both zero in this case as we did not spend money on marketing materials for either one and therefore there is no cost to HCD. 
+
+```{r}
+
+#Cost Benefit Analysis
+cost_benefit_table <-
+  testprobs.engineered %>%
+  count(predOutcome, Outcome) %>%
+  summarize(True_Negative = sum(n[predOutcome==0 & Outcome==0]),
+            True_Positive = sum(n[predOutcome==1 & Outcome==1]),
+            False_Negative = sum(n[predOutcome==0 & Outcome==1]),
+            False_Positive = sum(n[predOutcome==1 & Outcome==0])) %>%
+  gather(Variable, Count) %>%
+  mutate(Benefit =
+           case_when(Variable == "True_Negative"  ~ Count * 0,
+                     Variable == "True_Positive"  ~ ((-5000+10000+56000) * (Count * .25)) + 
+                       (-2850 * (Count)),
+                     Variable == "False_Negative" ~ (-0) * Count,
+                     Variable == "False_Positive" ~ (-2850) * Count)) %>%
+  bind_cols(data.frame(Description = c(
+    "We predicted homeowner would not take credit, no resources allocated, they did not take credit",
+    "We predicted correctly homeowner would take credit, allocated marketing resources, and 25% took the credit",
+    "We predicted homeowner would not take the credit, did not market allocate resources, they took the credit",
+    "We predicted homeowner would take credit, allocated marketing resources, they did not take credit")))
+
+  kable(cost_benefit_table, caption= "Cost/Benefit Analysis") %>% 
+  kable_paper("hover", full_width = F) %>%
+  kable_styling(font_size = 12, full_width = F,
+                bootstrap_options = c("striped", "hover", "condensed"))
+```
+### Optimizing for Thresholds
+
+The next section attempts to find the optimal threshold for this cost/benefit analysis. Until now, we have been using 50% as the threshold but perhaps we might want a higher or lower threshold in order to find how many people to send marketing materials and ultimately increase the amount of housing credits taken. 
+
+```{r Thresholds}
+#Optimizing for thresholds
+iterateThresholds <- function(data, observedClass, predictedProbs, group) {
+  #This function takes as its inputs, a data frame with an observed binomial class (1 or 0); a vector of predicted probabilities; and optionally a group indicator like race. It returns accuracy plus counts and rates of confusion matrix outcomes. It's a bit verbose because of the if (missing(group)). I don't know another way to make an optional parameter.
+  observedClass <- enquo(observedClass)
+  predictedProbs <- enquo(predictedProbs)
+  group <- enquo(group)
+  x = .01
+  all_prediction <- data.frame()
+  
+  if (missing(group)) {
+    
+    while (x <= 1) {
+      this_prediction <- data.frame()
+      
+      this_prediction <-
+        data %>%
+        mutate(predclass = ifelse(!!predictedProbs > x, 1,0)) %>%
+        count(predclass, !!observedClass) %>%
+        summarize(Count_TN = sum(n[predclass==0 & !!observedClass==0]),
+                  Count_TP = sum(n[predclass==1 & !!observedClass==1]),
+                  Count_FN = sum(n[predclass==0 & !!observedClass==1]),
+                  Count_FP = sum(n[predclass==1 & !!observedClass==0]),
+                  Rate_TP = Count_TP / (Count_TP + Count_FN),
+                  Rate_FP = Count_FP / (Count_FP + Count_TN),
+                  Rate_FN = Count_FN / (Count_FN + Count_TP),
+                  Rate_TN = Count_TN / (Count_TN + Count_FP),
+                  Accuracy = (Count_TP + Count_TN) / 
+                    (Count_TP + Count_TN + Count_FN + Count_FP)) %>%
+        mutate(Threshold = round(x,2))
+      
+      all_prediction <- rbind(all_prediction,this_prediction)
+      x <- x + .01
+    }
+    return(all_prediction)
+  }
+  else if (!missing(group)) { 
+    while (x <= 1) {
+      this_prediction <- data.frame()
+      
+      this_prediction <-
+        data %>%
+        mutate(predclass = ifelse(!!predictedProbs > x, 1,0)) %>%
+        group_by(!!group) %>%
+        count(predclass, !!observedClass) %>%
+        summarize(Count_TN = sum(n[predclass==0 & !!observedClass==0]),
+                  Count_TP = sum(n[predclass==1 & !!observedClass==1]),
+                  Count_FN = sum(n[predclass==0 & !!observedClass==1]),
+                  Count_FP = sum(n[predclass==1 & !!observedClass==0]),
+                  Rate_TP = Count_TP / (Count_TP + Count_FN),
+                  Rate_FP = Count_FP / (Count_FP + Count_TN),
+                  Rate_FN = Count_FN / (Count_FN + Count_TP),
+                  Rate_TN = Count_TN / (Count_TN + Count_FP),
+                  Accuracy = (Count_TP + Count_TN) / 
+                    (Count_TP + Count_TN + Count_FN + Count_FP)) %>%
+        mutate(Threshold = round(x,2))
+      
+      all_prediction <- rbind(all_prediction,this_prediction)
+      x <- x + .01
+    }
+    return(all_prediction)
+  }
+}
+
+#iterate thresholds run below
+whichThreshold <- 
+  iterateThresholds(
+    data=testprobs.engineered, observedClass = Outcome, predictedProbs = Probs)
+
+whichThreshold[1:5,]
+```
+
+
+In this chunk of code, we calculate the benefit for each threshold and then use mutate to make new columns for our four outcomes: True Negative (TN), True Positive (TP), False Negative (FN) and False Positive (FP).
+
+Here we see a graph where only True Positive and False Positive are displayed. The benefit for both outcomes at each threshold is displayed below. 
+
+```{r Mutate Threshold}
+#Result moved to long form and benefit calculated for each confusion metric at each threshold
+whichThreshold <- 
+  whichThreshold %>%
+  dplyr::select(starts_with("Count"), Threshold) %>%
+  gather(Variable, Count, -Threshold) %>%
+  mutate(Benefit =
+           case_when(Variable == "Count_TN"  ~ Count * 0,
+                     Variable == "Count_TP"  ~ ((-5000+10000+56000) * (Count * .25)) + 
+                       (-2850 * (Count)),
+                     Variable == "Count_FN"  ~ (-0) * Count,
+                     Variable == "Count_FP"  ~ (-2850) * Count))
+
+#visualization
+whichThreshold %>%
+  ggplot(.,aes(Threshold, Benefit, colour = Variable)) +
+  geom_point() +
+  scale_colour_manual(values = palette5[c(5, 1:3)]) +    
+  labs(title = "Benefit by confusion matrix type and threshold",
+       y = "Benefit") +
+  guides(colour=guide_legend(title = "Confusion Matrix")) 
+
+```
+
+Now we create a new table that calculates the Benefits for when people take the credit and the "losses" to HCD. In this code block, we use an ifelse statement to count only the 25% of the True Positives and to make all other columns zero. This gives us the number who took the credit at each threshold. Then we sum up the benefits, sum the total amount of people who took credits, create the rate of people taking credits at each threshold and calculate the benefit loss. The benefit loss is the amount of people who took the credit multiplied by the amount spent on marketing (2850) added to the amount of the credit (5000). Note these numbers are both negatives because they represent "losses" to HCD. Finally, we create a table that identifies the optimal threshold of 19%.
+
+```{r}
+whichThreshold_benefit <- 
+  whichThreshold %>% 
+  mutate(actualCredit = ifelse(Variable == "Count_TP", (Count * .25), 0)) %>% 
+  group_by(Threshold) %>% 
+  summarize(Benefit = sum(Benefit) ,
+            Actual_Credit_Count = sum(actualCredit),
+            Actual_Credit_Rate = sum(actualCredit) / sum(Count) ,
+            Actual_Credit_Benefit_Loss =  sum(actualCredit * -2850 + -5000))
+           
+
+whichThreshold_benefit[1:5,]
+
+BestThresh <- whichThreshold_benefit[which.max(whichThreshold_benefit$Benefit),]
+
+kable(BestThresh, caption="Optimal Threshold identified") %>% 
+  kable_styling(font_size = 12, full_width = F,
+                bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+In the graph below, we see the total benefit accrued for each threshold. The line shows the optimal threshold which we have found to be .19 or 19%.This means that setting the threshold at 19% optimizes the total benefit from the amount of people who will take the credit if marketed toward. Note that as the threshold rises, the benefit falls to zero.  
+```{r visualization total benefit}
+#ggplot for total benefit- right now lower than optimal threshold it is .19
+whichThreshold_benefit %>%
+  dplyr::select(Threshold, Benefit) %>%
+  gather(Variable, Value, -Threshold) %>%
+  ggplot(aes(Threshold, Value, colour = Variable)) +
+  geom_point() +
+  geom_vline(xintercept = pull(arrange(whichThreshold_benefit, -Benefit)[1,1])) +
+  scale_colour_manual(values = "#a1d76a") +
+  labs(title = "Benefit by threshold",
+       subtitle = "Vertical line denotes optimal threshold")
+```
+
+This next graph shows the same optimal threshold of 19% but represents the total credits that have been taken as opposed to the benefit gained. At the 19% threshold, 22 credits were taken. This is much better than the 3 credits that were taken at the 50% threshold. The threshold is particularly low in this case because we make an assumption that there is less risk in marketing toward a lot of people and the benefits outweigh the costs in this instance. 
+```{r visualization total count of credits}
+#ggplot for total count of credits- right now lower than optimal threshold
+whichThreshold_benefit %>%
+  dplyr::select(Threshold, Actual_Credit_Count) %>%
+  gather(Variable, Value, -Threshold) %>%
+  ggplot(aes(Threshold, Value, colour = Variable)) +
+  geom_point() +
+  geom_vline(xintercept = pull(arrange(whichThreshold_benefit, -Benefit)[1,1])) +
+  scale_colour_manual(values = "#e9a3c9") +
+  labs(title = "Total Count of Credits by Threshold",
+       subtitle = "Vertical line denotes optimal threshold")
+```
+
+Here is the table showing total benefits and total count of credits at the 50% threshold and the 19% threshold which is our optimal one.
+```{r Last table}
+#table for Benefit
+Table_values <- filter(whichThreshold_benefit, whichThreshold_benefit$Threshold== .50)%>%
+  dplyr::select(Threshold, Benefit, Actual_Credit_Count)
+
+Table_values1 <- filter(whichThreshold_benefit, whichThreshold_benefit$Threshold== .19)%>%
+  dplyr::select(Threshold, Benefit, Actual_Credit_Count)
+
+Final_Table <- rbind(Table_values, Table_values1)
+
+kable(Final_Table, caption=" Total Benefit and Count of Credits at 50% and Optimal Threshold") %>% 
+  kable_styling(font_size = 12, full_width = F,
+                bootstrap_options = c("striped", "hover", "condensed")) 
+```
+
+## Conclusion
+
+  In this report, we have used a binomial logistic regression model to predict four possible outcomes for marketing a housing tax credit program toward individuals who will take the credit. In our case, we have chosen to focus on the True Positives or the people who get the marketing material and resources and choose to take the housing credit. We engineered a model that attempts to find features that will optimize the amount of True Positives present with an attention to the sensitivity metric of our goodness of fit tests. We then generated cost/benefits for each outcome and calculated the optimal threshold for targeting the True Positive homeowners.
+
+  Unfortunately, we do not recommend our current model for production. Our engineered features did not increase the sensitivity of our model and in some goodness of fit tests above actually did more poorly than the kitchen sink model. We believe that the reason this was difficult was partially with the limited data on people who took housing credits. For future models, we would recommend more feature engineering with a focus on the market of people who are married, have secure jobs and a high level of education. This appears to currently be the individuals most likely to take the credit and increase the premium on their homes. Additionally, we would focus on providing marketing materials through more digital means like social media and ads in online news sources. It seems that people had a higher likelihood of taking the credit through cellular communication rather than the telephone.
+  
+  In general, we feel that targeting the group of individuals the model says we should target is complicated as it is based on past data collected. However, as a city department invested in the public good and benefit of all groups in the city we would hope to use and target this housing credit towards neighborhoods that are systematically underinvested in. Homeownership and the value of one's home is for most American's their biggest asset and we believe this tax credit program should benefit neighborhoods where the median wealth and property value is low. Thus, we should continue to do more data collection and outreach towards these neighborhoods in order to find a better marketing campaign and pipeline.
+
